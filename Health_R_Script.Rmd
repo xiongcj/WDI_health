@@ -1,0 +1,126 @@
+---
+title: "World Development Indicators (WDI) Health Dataset"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(rworldmap)
+library(ggthemes)
+library(corrplot)
+set.seed(5346)
+setwd("C:/Users/xmint/Desktop/Health_R")
+```
+
+### --- Health ---
+
+This set of visualisations is based on World Bank's world development indicators (WDI) released for the year 2020. 
+
+Variables include:
+
+  * Country Name and Code 
+  * Life expectancy at birth, total (years)
+  * Life expectancy at birth, female (years)
+  * Life expectancy at birth, male (years)
+  * Mortality rate, infant (per 1000 live births)
+  * Urban population (% of total population)
+  * Current Health Expenditure (% of GDP)
+
+```{r echo=FALSE}
+### Load data file ###
+# Download CSV file from https://qog.pol.gu.se/data/datadownloads/qogstandarddata
+qog <- read.csv("qog_std_cs_jan20.csv",header=TRUE)
+qog <- qog %>% select(ccode,cname,ccodealp,ccodecow,wdi_lifexp,wdi_lifexpf, wdi_lifexpm, wdi_mortinf,wdi_popurb,wdi_chexppgdp)
+```
+
+### 1 Life expectancy distribution by Gender
+
+```{r echo=FALSE}
+### Life expectancy distribution for female and male
+life <- rbind(data.frame(life_expectancy = qog$wdi_lifexpf,sex="F"),data.frame(life_expectancy = qog$wdi_lifexpm,sex="M")) %>% na.omit()
+ggplot(life, aes(life_expectancy)) + geom_histogram(aes(y=..density..,color = sex, fill = sex), alpha = 0.4, position = "identity",binwidth = 1) +
+  scale_fill_manual(values=c("#00AFBB", "#E7B800")) + scale_color_manual(values=c("#00AFBB", "#E7B800")) + geom_density(aes(life_expectancy,color = sex), size = 1) + 
+  xlab("Life Expectancy") + ylab("Density")
+```
+
+The life expectancy of males around the world is generally lower than the life expectancy of females. 
+
+### 2 Life expectancy (World Map)
+```{r echo=FALSE,message=FALSE,warning=FALSE,error=FALSE}
+### Life expectancy distribution for female and male
+life_country <- data.frame(region = qog$ccodealp, life_expectancy = qog$wdi_lifexp)
+
+# World map 
+mapped_data <- joinCountryData2Map(life_country, joinCode = "ISO3", nameJoinColumn = "region")
+
+# Trying to use ggplot instead to plot a nicer graph
+new_mapping <- data.frame(region = mapped_data$NAME,life_expectancy = mapped_data$life_expectancy)
+wmap <- map_data("world")
+world_base <- ggplot(data = wmap, mapping = aes(x = long, y = lat, group = group)) + 
+  coord_fixed(1.3) + geom_polygon(color = "black", fill = "gray", lty=.1)
+#Filling up some value missing for big countries 
+map_life <- left_join(wmap, new_mapping, by = "region")
+map_life$life_expectancy[map_life$region == "Czech Republic"] <- 78.824387
+map_life$life_expectancy[map_life$region == "UK"] <- 81.304878
+map_life$life_expectancy[map_life$region == "South Korea"] <- 82.155853
+map_life$life_expectancy[map_life$region == "North Korea"] <- 70.952072
+map_life$life_expectancy[map_life$region == "USA"] <- 78.741463
+map_life$life_expectancy[map_life$region == "Democratic Republic of the Congo"] <- 58.748611
+map_life$life_expectancy[map_life$region == "Republic of Congo"] <- 63.515316
+map_life$life_expectancy[map_life$region == "Central African Republic"] <- 50.591049
+map_life$life_expectancy[map_life$region == "South Sudan"] <- 55.796486
+
+#Final World Map graph
+world_base + 
+  geom_polygon(data = map_life, aes(fill = life_expectancy), color = "white", lty=.1) + 
+  geom_polygon(color = "white", fill = NA, lty=.1) + 
+  scale_fill_gradient(name = "Life Expectancy", low="#d0587e", high="#2887a1", na.value = "grey50") + 
+  theme(legend.position='top') + theme_fivethirtyeight()
+  
+```
+
+Continents such as Europe, North America and Australia have higher life expectancy of more than 75 (shown by the solid blue) as compared to Africa which has lower life expectancy of 60 and below (shown by the solid red). 
+
+### 3 Correlation plot between selected variables
+
+```{r echo=FALSE}
+
+group_urban <- data.frame(life_expectancy = qog$wdi_lifexp, mortality_rate = qog$wdi_mortinf, urban_percentage = qog$wdi_popurb, health_expenditure = qog$wdi_chexppgdp) %>% na.omit
+group_urban$urban50 <- NA
+group_urban$urban50[group_urban$urban_percentage < 50] = "rural"
+group_urban$urban50[group_urban$urban_percentage >= 50] = "urban"
+
+# Correlation plot 
+actual_frame <- select(group_urban,-urban50) %>% na.omit()
+cor_frame <- cor(actual_frame)
+
+corrplot(cor_frame,method = "number", tl.cex=1, tl.srt = 45, tl.col = "black", order="hclust", type ="upper" )
+```
+
+Life expectancy and mortality rate have a strong negative correlation of -0.93. We can also see that percentage of urban population has a stronger correlation with mortality rate and life expectancy as compared to health expenditure of the country. Percentage of urban population has a moderate negative correlation with mortality rate and a moderate positive correlation with life expectancy.
+
+### 4 Relationship between mortality rate, life expectancy and percentage of urban population.
+```{r echo=FALSE}
+
+### Mortality Rate against Life expectancy (with Urban Percentage) 
+
+# To see some regression outputs
+# y <- lm(wdi_lifexp ~ wdi_mortinf + wdi_popurb, qog)
+# summary(y)
+# x <- lm(wdi_lifexp ~ wdi_mortinf + wdi_popurb + wdi_chexppgdp, qog)
+# summary(x)
+
+# Graph plot
+ggplot(group_urban,aes(y=life_expectancy,x=mortality_rate)) + geom_point(aes(color = urban_percentage)) + 
+  scale_color_gradient(low = "blue",high = "red") + geom_smooth(method = lm) +
+  xlab("Mortality Rate") + ylab("Life Expectancy")
+
+```
+
+A linear model with 95% confidence interval (blue line) is fitted onto the scatter plot. We see that countries with higher life expectancy tends to have lower mortality rate, perhaps due to better healthcare. In addition, countries with high life expectancy and low mortality rate (top left) usually also have a larger percentage of urban population (shown by the brighter red circles). This reinforces the insights from the correlation plot.
